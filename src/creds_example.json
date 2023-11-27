@@ -1,0 +1,7 @@
+{
+
+	"consumer_token" : "your token here from https://meta.wikimedia.org/wiki/Special:OAuthConsumerRegistration",
+	"consumer_secret" : "same as above"
+
+
+}

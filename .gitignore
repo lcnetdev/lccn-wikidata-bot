@@ -5,7 +5,10 @@ __pycache__/
 .DS_Store
 # C extensions
 *.so
-
+ids.sqlite3
+src/ids.sqlite3
+src/creds.json
+creds.json
 # Distribution / packaging
 .Python
 build/
