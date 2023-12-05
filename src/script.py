@@ -20,8 +20,6 @@ from wikibaseintegrator import datatypes
 from wikibaseintegrator.models import Reference, References
 from wikibaseintegrator.models.qualifiers import Qualifiers
 
-# initate wikibaseintegrator
-wbi = WikibaseIntegrator()
 
 # the credentials are stored in a .gitignore'ed file called creds.json, look at the creds_example.json to see how to add your OAUTH2 info
 try:
@@ -35,7 +33,7 @@ except:
 
 try:
 	login_instance = wbi_login.OAuth2(consumer_token=consumer_token, consumer_secret=consumer_secret)
-except Exception as e: # work on python 3.x
+except Exception as e: 
     print('Failed to log in using the credentials provided:', e)
     os._exit(0)
 
@@ -43,8 +41,8 @@ except Exception as e: # work on python 3.x
 wbi_config['USER_AGENT'] = 'LCNNBot/1.0 (https://www.wikidata.org/wiki/User:LCNNBot)'
 headers={"user-agent":'LCNNBot/1.0 (https://www.wikidata.org/wiki/User:LCNNBot)'}
 
-# log in
-wbi = WikibaseIntegrator(login=login_instance)
+# initate wikibaseintegrator / log in
+wbi = WikibaseIntegrator(login=login_instance,is_bot=True)
 
 
 # some functions we are using
