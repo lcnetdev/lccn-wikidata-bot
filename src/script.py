@@ -30,8 +30,9 @@ try:
 	consumer_token = creds['consumer_token']
 	consumer_secret = creds['consumer_secret']
 	report_output = creds['report_output']
-except:
+except Exception as e:
 	print("Could not load/parse the creds.json file that holds the consumer_token and consumer_secret for Wikidata")
+	print(e)
 	os._exit(0)
 
 
@@ -195,8 +196,8 @@ log_writes = []
 full_page_complete_count = 0	# keeps track of how many API response pages have already been marked as finished in the DB
 
 # go back 50 pages by default
-for use_page_number in range(2996,3500):
-# for use_page_number in range(1,50):
+# for use_page_number in range(3286,3500):
+for use_page_number in range(1,50):
 
 
 	page_complete = True
