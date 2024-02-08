@@ -8,6 +8,9 @@ import re
 import time
 from urllib.parse import unquote
 import datetime
+import xml.etree.ElementTree as ET
+import random
+from collections import Counter
 
 
 from pathlib import Path
@@ -26,6 +29,7 @@ try:
 	creds = json.load(open('creds.json'))
 	consumer_token = creds['consumer_token']
 	consumer_secret = creds['consumer_secret']
+	report_output = creds['report_output']
 except:
 	print("Could not load/parse the creds.json file that holds the consumer_token and consumer_secret for Wikidata")
 	os._exit(0)
@@ -34,15 +38,23 @@ except:
 try:
 	login_instance = wbi_login.OAuth2(consumer_token=consumer_token, consumer_secret=consumer_secret)
 except Exception as e: 
-    print('Failed to log in using the credentials provided:', e)
-    os._exit(0)
+	print('Failed to log in using the credentials provided:', e)
+	os._exit(0)
 
 # the user agent we are using for these operations in wikibaseintegrator and requests
 wbi_config['USER_AGENT'] = 'LCNNBot/1.0 (https://www.wikidata.org/wiki/User:LCNNBot)'
 headers={"user-agent":'LCNNBot/1.0 (https://www.wikidata.org/wiki/User:LCNNBot)'}
 
 # initate wikibaseintegrator / log in
+# wbi = WikibaseIntegrator(login=login_instance,is_bot=True)
 wbi = WikibaseIntegrator(login=login_instance,is_bot=True)
+
+#today as a a string
+today_string = datetime.datetime.today().strftime('%Y-%m-%d')
+start_time_string = datetime.datetime.today().strftime('%Y-%m-%d %H:%M:%S')
+
+
+
 
 
 # some functions we are using
@@ -68,6 +80,14 @@ def extract_wikidata(field):
 	else:
 		return False
 
+# extract the viaf from the MARC field, expecting a string
+def extract_viaf(field):
+	reg_results = re.findall(r'viaf/[0-9]+',str(field))
+	if len(reg_results) == 1:
+		return reg_results[0].split('/')[-1]
+	else:
+		return False
+
 # delete records that are older than a month
 def prune(db):
 
@@ -84,6 +104,85 @@ def prune(db):
 	db.commit()
 
 
+
+# pass the event log and the where to output the reports
+def build_report(events,output_dir):
+
+	# count the occurances and store it as dict
+	c = Counter()
+	for item in events:
+		c[item["action"]] += 1
+	c = dict(c)
+
+
+	# setup the XML lib
+	ET.register_namespace('log',"info:lc/lds-id/log")
+	ET.register_namespace('mets',"http://www.loc.gov/METS/")
+
+	end_time_string = datetime.datetime.today().strftime('%Y-%m-%d %H:%M:%S')
+
+
+	mets_collection = ET.Element("{http://www.loc.gov/METS/}collection")
+	mets = ET.SubElement(mets_collection,"{http://www.loc.gov/METS/}mets")
+	mets.set('OBJID','/loads/lccnbot/'+today_string+'.xml')
+
+	metsHdr = ET.SubElement(mets,"{http://www.loc.gov/METS/}metsHdr")
+	metsHdr.set('LASTMODDATE',start_time_string)
+
+	dmdSec = ET.SubElement(mets,"{http://www.loc.gov/METS/}dmdSec")
+	dmdSec.set('ID','logxml')
+
+	mdWrap = ET.SubElement(dmdSec,"{http://www.loc.gov/METS/}mdWrap")
+	mdWrap.set('MDTYPE','OTHER')
+
+	xmlData = ET.SubElement(mdWrap,"{http://www.loc.gov/METS/}xmlData")
+
+
+	log_root = ET.SubElement(xmlData,"{info:lc/lds-id/log}load")
+
+	log_root.attrib['source'] = 'LccnBot'
+	log_root.attrib['start'] = start_time_string
+	log_root.attrib['end'] = end_time_string
+
+	available_actions = ['MULTI_LCCN_IN_WIKI',	'NEED_REVIEW',	'VIAF_SUGGESTION',	'ADD_P244',	'NAMED_AS_CHANGE',	'NAMED_AS_ADDED']
+
+	for action in available_actions:
+		if action not in c:
+			c[action] = 0
+
+	log_load_type = ET.SubElement(log_root, "{info:lc/lds-id/log}loadType")
+	log_load_type.text = "every day"
+	log_msg = ET.SubElement(log_root, "{info:lc/lds-id/log}msg")
+	log_msg.text = f"LccnBot. New P244: {c['ADD_P244']}, Named_as added: {c['NAMED_AS_ADDED']}, Named_as changed: {c['NAMED_AS_CHANGE']}, Need Review: {c['NEED_REVIEW']}, Multiple Qid for one LCCN: {c['MULTI_LCCN_IN_WIKI']}, VIAF Suggestion: {c['VIAF_SUGGESTION']} "
+
+	log_log_details = ET.SubElement(log_root, "{info:lc/lds-id/log}logDetails")
+
+	for action in available_actions:
+		for e in events:			
+			if e['action'] == action:
+				
+
+
+				log_details_item = ET.SubElement(log_log_details, "{info:lc/lds-id/log}logDetail")
+
+				log_details_item.set('lccn',e['lccn'])
+				log_details_item.set('qid',e['qid'])
+				log_details_item.set('action',e['action'])
+				log_details_item.set('old',e['old'])
+				log_details_item.set('new',e['new'])
+
+
+
+
+	Path(f"{output_dir}/").mkdir(parents=True, exist_ok=True)
+	ET.ElementTree(mets_collection).write(f"{output_dir}/{today_string}.xml", encoding='utf8')
+	mets.set('OBJID','/loads/lccnbot/latest.xml')
+	ET.ElementTree(mets_collection).write(f"{output_dir}/latest.xml", encoding='utf8')
+
+
+
+
+
 # ----
 
 
@@ -96,14 +195,27 @@ log_writes = []
 full_page_complete_count = 0	# keeps track of how many API response pages have already been marked as finished in the DB
 
 # go back 50 pages by default
-for use_page_number in range(1,50):
+for use_page_number in range(2996,3500):
+# for use_page_number in range(1,50):
+
 
 	page_complete = True
-	feedurl = f"https://id.loc.gov/authorities/names/activitystreams/feed/{use_page_number}.json"
+	feedurl = f"https://id.loc.gov/authorities/names/activitystreams/feed/{use_page_number}.json?nocache{random.random()}"
 	print("PAGE", use_page_number, feedurl)
+	lccns_to_check_wikidata_count = []
 
 	data = requests.get(feedurl)
-	data = json.loads(data.text)
+	try:
+		data = json.loads(data.text)
+	except:
+		print("JSON decode error:",data.text)
+		print("Sleeping 60 sec")
+		time.sleep(60)
+		print("Trying again...")
+		data = requests.get(feedurl)
+		data = json.loads(data.text)
+
+
 	to_check = []
 
 	# build a dict for each item to check 
@@ -139,6 +251,12 @@ for use_page_number in range(1,50):
 			xml = requests.get(l['marcurl'],headers=headers)
 			xmltext = xml.text
 
+			# with open("/Volumes/BibGlum/marc_lccn_wikibot/"+l['lccn']+'.xml','w') as tmpmarc:
+			# 	tmpmarc.write(xmltext)
+
+
+			# time.sleep(1)
+
 		except Exception as e: 
 			print('Faild to download the XML from id.loc.gov:', l['lccn'], e)
 			continue
@@ -155,6 +273,8 @@ for use_page_number in range(1,50):
 			continue
 
 		wiki_id = False
+		viaf_id = False
+
 		# check for wikidata in the fields
 		for field in record.get_fields():
 			if 'wikidata.org' in str(field):
@@ -163,15 +283,19 @@ for use_page_number in range(1,50):
 					wiki_id = extract_wikidata(field)
 					if wiki_id != False:
 						print("Found wiki id in 024:", str(field))
-						break
+						
 
 				if '=670' in str(field):
 					if 'u' in field:
 						wiki_id = extract_wikidata(field)
 						if wiki_id != False:
 							print("Found wiki id in 670$u:", str(field['u']), "wiki_id:",wiki_id)
-							break
+							
 						
+			if 'viaf.org' in str(field):
+				# look in 024
+				if '=024' in str(field):
+					viaf_id = extract_viaf(field)						
 
 		# if things change or they start showing up in different part of the records keep track of it
 		if wiki_id == False and 'wikidata' in str(record):
@@ -180,11 +304,50 @@ for use_page_number in range(1,50):
 
 		if wiki_id == False:
 			# add it to the DB as not needing our attention again
-		    sql = ''' INSERT INTO ids(key, lccn, timestamp)
-		              VALUES(?,?,?) '''
+			sql = ''' INSERT INTO ids(key, lccn, timestamp)
+					  VALUES(?,?,?) '''
 
-		    db_crsr.execute(sql, ( l['db_id'], l['lccn'], int(time.time())))
-		    db.commit()
+			db_crsr.execute(sql, ( l['db_id'], l['lccn'], int(time.time())))
+			db.commit()
+
+			# no wikidata but did it have a VIAF?
+			if viaf_id != False:	
+				viaf_links={}
+				try:
+					viaf_req = requests.get(f"https://viaf.org/viaf/{viaf_id}/justlinks.json",headers=headers)
+					viaf_links = viaf_req.json()
+				except:
+					print("Viaf commmuication ERROR")
+					print(viaf_req.text)
+
+				if isinstance(viaf_links, dict):
+
+					if 'WKP' in viaf_links and 'LC' in viaf_links:
+
+						# it has a viaf and wikidata ID, check wikidata and see if it already has a P244 if so skip the suggestion
+						viaf_qid = viaf_links['WKP'][0]
+						try:
+							wiki_item = wbi.item.get(entity_id=viaf_qid)
+						except Exception as e: 
+							print('Faild to find Wikidata item:', viaf_qid, l['lccn'], e)
+
+							# it might be a token timeout issue
+							try:
+								login_instance = wbi_login.OAuth2(consumer_token=consumer_token, consumer_secret=consumer_secret)
+								wbi = WikibaseIntegrator(login=login_instance,is_bot=True)
+								wiki_item = wbi.item.get(entity_id=viaf_qid)
+							except Exception as e: 
+
+								continue
+						p244 = []
+
+						try:
+							p244 = wiki_item.claims.get('P244')
+						except:
+							pass
+
+						if len(p244) == 0:
+							log_writes.append({'lccn':l['lccn'],'qid':",".join(viaf_links['WKP']),'action':"VIAF_SUGGESTION","old":viaf_id,'new':''})
 
 		else:
 
@@ -203,7 +366,15 @@ for use_page_number in range(1,50):
 				wiki_item = wbi.item.get(entity_id=wiki_id)
 			except Exception as e: 
 				print('Faild to find Wikidata item:', wiki_id, l['lccn'], e)
-				continue
+				try:
+					login_instance = wbi_login.OAuth2(consumer_token=consumer_token, consumer_secret=consumer_secret)
+					wbi = WikibaseIntegrator(login=login_instance,is_bot=True)
+					wiki_item = wbi.item.get(entity_id=wiki_id)
+				except Exception as e: 
+
+					continue
+
+				
 
 			try:
 				p244 = wiki_item.claims.get('P244')
@@ -226,11 +397,17 @@ for use_page_number in range(1,50):
 							# print(f"www.wikidata.org/entity/{wiki_id}")
 
 							# it might be a different named_subject_as value, if so we need to update it with a new value
-							for q in c.qualifiers:
+							for q in c.qualifiers.get('P1810'):
 								if q.datavalue['value'].strip() != l['pref']:
-									log_writes.append({'lccn':l['lccn'],'qid':wiki_id,'action':"NAMED_AS_CHANGE","old":str(q.datavalue['value']),'new':l['pref']})
+									old_value = q.datavalue['value']
 									q.datavalue['value'] = l['pref']
-									wiki_item.write(summary='Updating the subject named as to LCCN authorized heading value')
+									try:
+										wiki_item.write(summary='Updating the subject named as to LCCN authorized heading value')
+										log_writes.append({'lccn':l['lccn'],'qid':wiki_id,'action':"NAMED_AS_CHANGE","old":str(old_value),'new':l['pref']})
+
+									except:
+										log_writes.append({'lccn':l['lccn'],'qid':wiki_id,'action':"NEED_REVIEW","old":"",'new':"Error changing named_as."})
+
 									break
 
 							# update database marking it done
@@ -245,11 +422,19 @@ for use_page_number in range(1,50):
 							# # doesn't have named_as yet
 							# print(l)
 							# print(c.get_json())
-
+							# print(c.qualifiers)
+							# print(json.dumps(c.get_json(),indent=2))
 							c.qualifiers.add(datatypes.String(prop_nr='P1810', value=l['pref']))
-							wiki_item.write(summary='Add authorized heading for P244 Library of Congress LCCN subject named as')
-							log_writes.append({'lccn':l['lccn'],'qid':wiki_id,'action':"NAMED_AS_ADDED","old":"",'new':l['pref']})
-							
+							# print("AFTER------")
+							# print(json.dumps(c.get_json(),indent=2))
+
+							try:
+								wiki_item.write(summary='Add authorized heading for P244 Library of Congress LCCN subject named as')
+								log_writes.append({'lccn':l['lccn'],'qid':wiki_id,'action':"NAMED_AS_ADDED","old":"",'new':l['pref']})
+
+							except:
+								log_writes.append({'lccn':l['lccn'],'qid':wiki_id,'action':"NEED_REVIEW","old":"",'new':"Error adding named_as."})
+
 							# update database marking it done
 							sql = ''' INSERT INTO ids(key, lccn, timestamp)
 							VALUES(?,?,?) '''
@@ -270,7 +455,7 @@ for use_page_number in range(1,50):
 					log_writes.append({'lccn':l['lccn'],'qid':wiki_id,'action':"NEED_REVIEW","old":"",'new':"LCCN already exist but not the one we are trying to add."})
 					# update database marking it done
 					sql = ''' INSERT INTO ids(key, lccn, timestamp)
-					          VALUES(?,?,?) '''
+							  VALUES(?,?,?) '''
 					db_crsr.execute(sql, ( l['db_id'], l['lccn'], int(time.time())))
 					db.commit()		
 
@@ -299,23 +484,76 @@ for use_page_number in range(1,50):
 				lccn_id_claim = datatypes.ExternalID(value=l['lccn'], prop_nr='P244', qualifiers=claim_qualifiers, references=claim_references)
 
 
+
 				wiki_item.claims.add(lccn_id_claim)
 				
-				wiki_item.write(summary='Add P244 Library of Congress LCCN External Identifier')
 
-				log_writes.append({'lccn':l['lccn'],'qid':wiki_id,'action':"ADD_P244","old":'','new':''})
+				try:
+					wiki_item.write(summary='Add P244 Library of Congress LCCN External Identifier')
+					log_writes.append({'lccn':l['lccn'],'qid':wiki_id,'action':"ADD_P244","old":'','new':''})
 
+				except:
+					log_writes.append({'lccn':l['lccn'],'qid':wiki_id,'action':"NEED_REVIEW","old":"",'new':"Script Error when adding P244."})
+
+				break
+
+
+				lccns_to_check_wikidata_count.append(l['lccn'])
 				# update database marking it done
 				sql = ''' INSERT INTO ids(key, lccn, timestamp)
 				VALUES(?,?,?) '''
 				db_crsr.execute(sql, ( l['db_id'], l['lccn'], int(time.time())))
 				db.commit()		
 
+				# also ask 
+
+
+	# give wikidata sparql endpoint a few seconds to catch up before we query
+	time.sleep(5)
+
+
+	# for each lccn write a sparql that looks for 
+	# the P244 and if it returns > 1 then make a log entry for it
+	for lccn in lccns_to_check_wikidata_count:
+
+		headers_wiki = {
+			'Accept' : 'application/json',
+			'User-Agent': 'LCNNBot/1.0 (https://www.wikidata.org/wiki/User:LCNNBot)'
+		}
+		sparql = f"""
+		  SELECT *
+		  WHERE {{
+			?item wdt:P244 "{lccn}" .
+		  }}
+		"""
+		params = {
+			'query' : sparql
+		}
+
+		r = requests.get("https://query.wikidata.org/sparql", params=params, headers=headers_wiki)
+		data = r.json()
+		multi_qid = []
+		if len(data['results']['bindings']) > 0:
+			for result in data['results']['bindings']:
+				multi_qid.append(result['item']['value'].split('/')[-1])
+
+
+		
+		if len(multi_qid) > 1:
+
+			log_writes.append({'lccn':lccn,'qid':",".join(multi_qid),'action':"MULTI_LCCN_IN_WIKI","old":"",'new':"LCCN Used in multiple Qids"})
+
+
+	lccns_to_check_wikidata_count = []
+
+	# with open('tmp.log','w') as logout:
+	# 	for l in log_writes:
+	# 		logout.write(f'<logevent date="{datetime.datetime.now()}" lccn="{l["lccn"]}" qid="{l["qid"]}" action="{l["action"]}" old="{l["old"]}" new="{l["new"]}">{datetime.datetime.now()} / {l["action"]} - {l["lccn"]} - {l["qid"]}: old:{l["old"]} new: {l["new"]} </logevent>\n')
+	# 		json.dump(log_writes,open("events.json",'w'),indent=2)
+	build_report(log_writes,report_output)
 
 
 
-for l in log_writes:
-	print(l)
 
 
 prune(db)

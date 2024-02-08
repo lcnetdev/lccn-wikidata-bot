@@ -1,7 +1,8 @@
 {
 
 	"consumer_token" : "your token here from https://meta.wikimedia.org/wiki/Special:OAuthConsumerRegistration",
-	"consumer_secret" : "same as above"
+	"consumer_secret" : "same as above",
+	"report_output" : "/where/you/want/the/reports/stored/with_no_trailing_slash"
 
 
 }
