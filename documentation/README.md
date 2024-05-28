@@ -63,7 +63,18 @@ If the LCCN is not the same it will add it, but not replace any existing data, i
 
 When creating the P244 the script will also add the P1810 subject named as using the MARC `100` value, the P248 stated in with the value of https://www.wikidata.org/wiki/Q18912790 and the P813 retrieved with the current date.
 
-A report will be created that will be on a public accessible URL (probably at id.loc.gov) that will document the activities for the run of the script.
+A report will be created that will be on a public accessible URL (probably at id.loc.gov) that will document the activities for the run of the script. A group of volunteers resolves the errors in the report every week. Reach out to Mary at mgc96@cornell.edu for more information or to be added to the schedule.
 
+The report contains the following elements:
 
+**Need Review** - Some kind of error occurred
 
+**VIAF suggestion** - A cataloger put an 024 pointing to VIAF in their record, and the VIAF cluster has a Wikidata item in it. 
+
+**Add P244** - Bot successfully added the LC identifier and a “subject named as” qualifier to Wikidata
+
+**Named as added** - Bot successfully added a “subject named as” qualifier to Wikidata
+
+Resolving VIAF suggestions:
+
+Check that the Wikidata item in the cluster is for the same entity described in the LC authority record, then click the checkbox to generate a Quickstatements command. Copy the command into Quickstatements (https://quickstatements.toolforge.org/#/) and run it to add a P244 statement, the P1810 qualifier, and the P248 and P813 references to the Wikidata item.
