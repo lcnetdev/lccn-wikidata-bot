@@ -1,5 +1,10 @@
 # Byte-compiled / optimized / DLL files
 __pycache__/
+build_report.py
+viaftest.py
+wiki_count_test.py
+new_viaf_test.py
+reports/
 *.py[cod]
 *$py.class
 .DS_Store

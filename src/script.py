@@ -196,12 +196,14 @@ log_writes = []
 full_page_complete_count = 0	# keeps track of how many API response pages have already been marked as finished in the DB
 
 # go back 50 pages by default
-# for use_page_number in range(3286,3500):
+# for use_page_number in range(5713,6000):
 for use_page_number in range(1,50):
 
 
 	page_complete = True
-	feedurl = f"https://id.loc.gov/authorities/names/activitystreams/feed/{use_page_number}.json?nocache{random.random()}"
+	nocache = f"?nocache{random.random()}"
+	nocache = ''
+	feedurl = f"https://id.loc.gov/authorities/names/activitystreams/feed/{use_page_number}.json{nocache}"
 	print("PAGE", use_page_number, feedurl)
 	lccns_to_check_wikidata_count = []
 
@@ -213,8 +215,17 @@ for use_page_number in range(1,50):
 		print("Sleeping 60 sec")
 		time.sleep(60)
 		print("Trying again...")
-		data = requests.get(feedurl)
-		data = json.loads(data.text)
+
+		try:
+			data = requests.get(feedurl)
+			data = json.loads(data.text)
+		except:
+			print("JSON decode error again:",data.text)
+			print("Sleeping 120 sec")
+			time.sleep(120)
+			print("Trying again...")
+			data = requests.get(feedurl)
+			data = json.loads(data.text)
 
 
 	to_check = []
@@ -256,7 +267,7 @@ for use_page_number in range(1,50):
 			# 	tmpmarc.write(xmltext)
 
 
-			# time.sleep(1)
+			time.sleep(1)
 
 		except Exception as e: 
 			print('Faild to download the XML from id.loc.gov:', l['lccn'], e)
@@ -314,19 +325,42 @@ for use_page_number in range(1,50):
 			# no wikidata but did it have a VIAF?
 			if viaf_id != False:	
 				viaf_links={}
+				viaf_xml = ""
 				try:
-					viaf_req = requests.get(f"https://viaf.org/viaf/{viaf_id}/justlinks.json",headers=headers)
-					viaf_links = viaf_req.json()
+					viaf_req = requests.get(f"https://viaf.org/viaf/{viaf_id}/viaf.xml",headers=headers)
+					viaf_xml = viaf_req.text
+					viaf_xml = viaf_xml.replace(">",">\n")
 				except:
 					print("Viaf commmuication ERROR")
 					print(viaf_req.text)
+
+				WKP = None
+				LC = None
+				for line in viaf_xml.split("\n"):
+					if line.strip().startswith('WKP|'):
+						WKP = line.strip().split('|')[1]
+						if '<' in WKP:
+							WKP = WKP.split('<')[0]
+
+					if line.strip().startswith('LC|'):
+						LC = line.strip().split('|')[1]
+						if '<' in LC:
+							LC = LC.split('<')[0]			
+
+					if WKP != None and LC != None:
+						break
+
+				if WKP != None and LC != None:
+					viaf_links['WKP']=WKP
+					viaf_links['LC']=LC
+
 
 				if isinstance(viaf_links, dict):
 
 					if 'WKP' in viaf_links and 'LC' in viaf_links:
 
 						# it has a viaf and wikidata ID, check wikidata and see if it already has a P244 if so skip the suggestion
-						viaf_qid = viaf_links['WKP'][0]
+						viaf_qid = viaf_links['WKP']
 						try:
 							wiki_item = wbi.item.get(entity_id=viaf_qid)
 						except Exception as e: 
