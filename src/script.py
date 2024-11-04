@@ -382,7 +382,7 @@ for use_page_number in range(1,50):
 							pass
 
 						if len(p244) == 0:
-							log_writes.append({'lccn':l['lccn'],'qid':",".join(viaf_links['WKP']),'action':"VIAF_SUGGESTION","old":viaf_id,'new':''})
+							log_writes.append({'lccn':l['lccn'],'qid':viaf_links['WKP'],'action':"VIAF_SUGGESTION","old":viaf_id,'new':''})
 
 		else:
 
