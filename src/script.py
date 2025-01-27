@@ -236,7 +236,7 @@ for use_page_number in range(1,50):
 		uri = rec['object']['id']
 		url = uri.replace("http://","https://")
 		date_pub = rec['published']
-		date_update = rec['object']['update']
+		date_update = rec['object']['updated']
 		marcurl = rec['object']['id'] + '.marcxml.xml'
 		marcurl = marcurl.replace("http://","https://")
 		db_id = f"{lccn}-{date_pub}-{date_update}"
