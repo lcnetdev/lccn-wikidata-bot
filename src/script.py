@@ -530,7 +530,7 @@ for use_page_number in range(1,50):
 				except:
 					log_writes.append({'lccn':l['lccn'],'qid':wiki_id,'action':"NEED_REVIEW","old":"",'new':"Script Error when adding P244."})
 
-				break
+				
 
 
 				lccns_to_check_wikidata_count.append(l['lccn'])
