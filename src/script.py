@@ -326,8 +326,10 @@ for use_page_number in range(1,50):
 			if viaf_id != False:	
 				viaf_links={}
 				viaf_xml = ""
+				viaf_url = "https://viaf.org/viaf/" + viaf_id
+				viaf_headers = {"user-agent":'LCNNBot/1.0 (https://www.wikidata.org/wiki/User:LCNNBot)', "Accept": 'application/xml'}
 				try:
-					viaf_req = requests.get(f"https://viaf.org/viaf/{viaf_id}/viaf.xml",headers=headers)
+					viaf_req = requests.get(viaf_url,headers=viaf_headers)
 					viaf_xml = viaf_req.text
 					viaf_xml = viaf_xml.replace(">",">\n")
 				except:
