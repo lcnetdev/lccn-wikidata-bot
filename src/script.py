@@ -12,6 +12,12 @@ import xml.etree.ElementTree as ET
 import random
 from collections import Counter
 
+# import logging
+# logging.basicConfig(level=logging.DEBUG)
+
+
+from lib.parse_reports import process_lccn_bot_xml
+
 
 from pathlib import Path
 
@@ -24,27 +30,47 @@ from wikibaseintegrator.models import Reference, References
 from wikibaseintegrator.models.qualifiers import Qualifiers
 
 
+# the user agent we are using for these operations in wikibaseintegrator and requests
+wbi_config['USER_AGENT'] = 'LCNNBot/1.0 (https://www.wikidata.org/wiki/User:LCNNBot)'
+headers={"user-agent":'LCNNBot/1.0 (https://www.wikidata.org/wiki/User:LCNNBot)'}
+
+
 # the credentials are stored in a .gitignore'ed file called creds.json, look at the creds_example.json to see how to add your OAUTH2 info
 try:
 	creds = json.load(open('creds.json'))
 	consumer_token = creds['consumer_token']
 	consumer_secret = creds['consumer_secret']
 	report_output = creds['report_output']
+	wikidata_username = creds['wikidata_username']
+	wikidata_password = creds['wikidata_password']
+	auto_eval_url = creds['auto_eval_url']
 except Exception as e:
 	print("Could not load/parse the creds.json file that holds the consumer_token and consumer_secret for Wikidata")
 	print(e)
 	os._exit(0)
 
 
+
 try:
+	# we use env var in the library so just fake it here but store them in the creds file
+	os.environ["WIKIDATA_USERNAME"] = wikidata_username
+	os.environ["WIKIDATA_PASSWORD"] = wikidata_password
+	os.environ["AUTO_EVAL_URL"] = auto_eval_url
+except Exception as e:
+	print("Could not set environment variables")
+
+
+
+
+try:
+	print(consumer_token, consumer_secret)
 	login_instance = wbi_login.OAuth2(consumer_token=consumer_token, consumer_secret=consumer_secret)
-except Exception as e: 
+except Exception as e:
 	print('Failed to log in using the credentials provided:', e)
 	os._exit(0)
 
-# the user agent we are using for these operations in wikibaseintegrator and requests
-wbi_config['USER_AGENT'] = 'LCNNBot/1.0 (https://www.wikidata.org/wiki/User:LCNNBot)'
-headers={"user-agent":'LCNNBot/1.0 (https://www.wikidata.org/wiki/User:LCNNBot)'}
+
+
 
 # initate wikibaseintegrator / log in
 # wbi = WikibaseIntegrator(login=login_instance,is_bot=True)
@@ -180,11 +206,14 @@ def build_report(events,output_dir):
 	mets.set('OBJID','/loads/lccnbot/latest.xml')
 	ET.ElementTree(mets_collection).write(f"{output_dir}/latest.xml", encoding='utf8')
 
-
-
+	# return the filenames touched
+	return [f"{output_dir}/{today_string}.xml", f"{output_dir}/latest.xml"]
 
 
 # ----
+
+# if true it will not write to wikibase but everything else will run
+DEBUG_MODE = False
 
 
 db = connect_to_database()
@@ -197,7 +226,7 @@ full_page_complete_count = 0	# keeps track of how many API response pages have a
 
 # go back 50 pages by default
 # for use_page_number in range(5713,6000):
-for use_page_number in range(1,50):
+for use_page_number in range(1,50): 
 
 
 	page_complete = True
@@ -249,6 +278,8 @@ for use_page_number in range(1,50):
 			# otherwise not found, build a dict for it
 			page_complete = False
 			to_check.append({'lccn':lccn,'db_id':db_id,'marcurl':marcurl, 'uri': uri, 'url':url})
+
+
 		else:
 			# we already checked this one, keep moving
 			print("skipping",lccn)
@@ -439,7 +470,8 @@ for use_page_number in range(1,50):
 									old_value = q.datavalue['value']
 									q.datavalue['value'] = l['pref']
 									try:
-										wiki_item.write(summary='Updating the subject named as to LCCN authorized heading value')
+										if DEBUG_MODE != True:
+											wiki_item.write(summary='Updating the subject named as to LCCN authorized heading value')
 										log_writes.append({'lccn':l['lccn'],'qid':wiki_id,'action':"NAMED_AS_CHANGE","old":str(old_value),'new':l['pref']})
 
 									except:
@@ -466,7 +498,8 @@ for use_page_number in range(1,50):
 							# print(json.dumps(c.get_json(),indent=2))
 
 							try:
-								wiki_item.write(summary='Add authorized heading for P244 Library of Congress LCCN subject named as')
+								if DEBUG_MODE != True:
+									wiki_item.write(summary='Add authorized heading for P244 Library of Congress LCCN subject named as')
 								log_writes.append({'lccn':l['lccn'],'qid':wiki_id,'action':"NAMED_AS_ADDED","old":"",'new':l['pref']})
 
 							except:
@@ -526,7 +559,8 @@ for use_page_number in range(1,50):
 				
 
 				try:
-					wiki_item.write(summary='Add P244 Library of Congress LCCN External Identifier')
+					if DEBUG_MODE != True:
+						wiki_item.write(summary='Add P244 Library of Congress LCCN External Identifier')
 					log_writes.append({'lccn':l['lccn'],'qid':wiki_id,'action':"ADD_P244","old":'','new':''})
 
 				except:
@@ -546,7 +580,8 @@ for use_page_number in range(1,50):
 
 
 	# give wikidata sparql endpoint a few seconds to catch up before we query
-	time.sleep(5)
+	if DEBUG_MODE != True:
+		time.sleep(5)
 
 
 	# for each lccn write a sparql that looks for 
@@ -582,14 +617,29 @@ for use_page_number in range(1,50):
 
 
 	lccns_to_check_wikidata_count = []
+	print("Building report for",len(log_writes), "actions so far.")
+	# build the each time to preserve any crashes
+	report_filenames = build_report(log_writes,report_output)
+
 
 	# with open('tmp.log','w') as logout:
 	# 	for l in log_writes:
 	# 		logout.write(f'<logevent date="{datetime.datetime.now()}" lccn="{l["lccn"]}" qid="{l["qid"]}" action="{l["action"]}" old="{l["old"]}" new="{l["new"]}">{datetime.datetime.now()} / {l["action"]} - {l["lccn"]} - {l["qid"]}: old:{l["old"]} new: {l["new"]} </logevent>\n')
 	# 		json.dump(log_writes,open("events.json",'w'),indent=2)
-	build_report(log_writes,report_output)
+# build the report at the end
+print("Building report for",len(log_writes), " total.")
+report_filenames = build_report(log_writes,report_output)
 
-
+# enrich the report with new info
+with open(report_filenames[0], 'r', encoding='utf-8') as f:
+	xmltest = f.read()
+	modified_xml = process_lccn_bot_xml(xmltest)
+	# write the modified modified_xml back over where it came from
+	with open(report_filenames[0], 'w', encoding='utf-8') as fout:
+		fout.write(modified_xml)
+	with open(report_filenames[1], 'w', encoding='utf-8') as fout:
+		fout.write(modified_xml)
+	# do something with modified_xml
 
 
 
